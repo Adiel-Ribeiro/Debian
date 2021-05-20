@@ -19,5 +19,9 @@ sudo chmod 400 /etc/ssh/sshd_config
 ##################### logging ###############################################################################
 sudo chattr +a /var/log/auth.log
 #############################################################################################################
+sudo bash -c "echo net.ipv6.conf.all.disable_ipv6 = 1 >> /etc/sysctl.conf"
+sudo bash -c "echo  net.ipv6.conf.default.disable_ipv6 = 1  >> /etc/sysctl.conf"
+sudo bash -c "echo   net.ipv6.conf.lo.disable_ipv6 = 1  >> /etc/sysctl.conf"
+##############################################################################################################
 rm debian-hardening.bash
 sudo reboot
