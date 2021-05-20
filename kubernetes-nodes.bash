@@ -73,6 +73,7 @@ cat <<EOF | tee mount.bash
 #!/bin/bash
 sudo mount 10.0.0.5:/ efs
 sudo cp $HOME/efs/calico-kubeconfig /etc/cni/net.d/calico-kubeconfig
+sudo chown root:admin /etc/cni/net.d/calico-kubeconfig
 EOF
 ##########################################################################################################################
 chmod +x mount.bash
