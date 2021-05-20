@@ -64,10 +64,15 @@ sudo curl -L -o /opt/cni/bin/calico-ipam https://github.com/projectcalico/cni-pl
 sudo chmod 755 /opt/cni/bin/calico-ipam
 ###############################################################################################################################
 sudo mkdir -p /etc/cni/net.d/
-sudo cp cni.kubeconfig /etc/cni/net.d/calico-kubeconfig
+######################################## copy kube config from an already running nfs server ##################################
+sudo apt-get install -y nfs-common
+cd $HOME
+mkdir efs 
+sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport 10.0.0.5:/ efs
+sudo cp efs/cni.kubeconfig /etc/cni/net.d/calico-kubeconfig
 ############################################################################################################################
 sudo chmod 750 /etc/cni/ && sudo chown root:admin /etc/cni/
-sudo chmod 770 /etc/cni/net.d && sudo chown root:admin /etc/cni/net.d/
+sudo chmod 750 /etc/cni/net.d && sudo chown root:admin /etc/cni/net.d/
 sudo chown root:admin /etc/cni/net.d/calico-kubeconfig && sudo chmod 640 /etc/cni/net.d/calico-kubeconfig
 ###########################################################################################################################
 cat > /etc/cni/net.d/10-calico.conflist <<EOF
@@ -98,8 +103,6 @@ cat > /etc/cni/net.d/10-calico.conflist <<EOF
   ]
 }
 EOF
-############################################################################################################################
-sudo chmod 750 /etc/cni/net.d
 ############################################################################################################################
 sudo reboot 
 ###########################################################################################################################
