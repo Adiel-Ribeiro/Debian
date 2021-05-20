@@ -242,14 +242,20 @@ sudo chmod 750 /etc/cni/net.d
 ############################################################################################################################
 ######################################## copy kube config to an already running nfs server ##################################
 sudo apt-get install -y nfs-common
-sudo systemctl restart nfs-utils
-sudo /etc/init.d/nfs-common restart
+mkdir $HOME/efs 
 cd $HOME
-mkdir efs 
-sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport 10.0.0.5:/ efs
-sleep 5
-sudo cp /etc/cni/net.d/calico-kubeconfig efs/cni.kubeconfig
+############################################################################################################################
+cat <<EOF | tee mount.bash
+#!/bin/bash
+sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2, noresvport 10.0.0.5:/ efs
+sudo cp /etc/cni/net.d/calico-kubeconfig $HOME/efs/calico-kubeconfig
+EOF
+##########################################################################################################################
+chmod +x mount.bash
 ################################# thypha #################################################################################
+echo "@reboot /home/admin/mount.bash" > $HOME/cron
+cat $HOME/cron | crontab -u admin -
+###########################################################################################################################
 mkdir $HOME/typha && cd $HOME/typha
 ######################################### cert #################################################################
 openssl req -x509 -newkey rsa:4096 \
