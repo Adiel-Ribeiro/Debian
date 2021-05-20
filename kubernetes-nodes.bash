@@ -66,10 +66,19 @@ sudo chmod 755 /opt/cni/bin/calico-ipam
 sudo mkdir -p /etc/cni/net.d/
 ######################################## copy kube config from an already running nfs server ##################################
 sudo apt-get install -y nfs-common
+mkdir $HOME/efs 
 cd $HOME
-mkdir efs 
-sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport 10.0.0.5:/ efs
-sudo cp efs/cni.kubeconfig /etc/cni/net.d/calico-kubeconfig
+############################################################################################################################
+cat <<EOF | tee mount.bash
+#!/bin/bash
+sudo mount 10.0.0.5:/ efs
+sudo cp $HOME/efs/calico-kubeconfig /etc/cni/net.d/calico-kubeconfig
+EOF
+##########################################################################################################################
+chmod +x mount.bash
+################################# thypha #################################################################################
+echo "@reboot /home/admin/mount.bash" > $HOME/cron
+cat $HOME/cron | crontab -u admin -
 ############################################################################################################################
 sudo chmod 750 /etc/cni/ && sudo chown root:admin /etc/cni/
 sudo chmod 750 /etc/cni/net.d && sudo chown root:admin /etc/cni/net.d/
