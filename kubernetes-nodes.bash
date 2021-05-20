@@ -57,5 +57,49 @@ sudo apt-get update -y
 sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 ############################################################################################################################
+######################################### calico ##########################################################################
+sudo curl -L -o /opt/cni/bin/calico https://github.com/projectcalico/cni-plugin/releases/download/v3.14.0/calico-amd64
+sudo chmod 755 /opt/cni/bin/calico
+sudo curl -L -o /opt/cni/bin/calico-ipam https://github.com/projectcalico/cni-plugin/releases/download/v3.14.0/calico-ipam-amd64
+sudo chmod 755 /opt/cni/bin/calico-ipam
+###############################################################################################################################
+sudo mkdir -p /etc/cni/net.d/
+sudo cp cni.kubeconfig /etc/cni/net.d/calico-kubeconfig
+############################################################################################################################
+sudo chmod 750 /etc/cni/ && sudo chown root:admin /etc/cni/
+sudo chmod 770 /etc/cni/net.d && sudo chown root:admin /etc/cni/net.d/
+sudo chown root:admin /etc/cni/net.d/calico-kubeconfig && sudo chmod 640 /etc/cni/net.d/calico-kubeconfig
+###########################################################################################################################
+cat > /etc/cni/net.d/10-calico.conflist <<EOF
+{
+  "name": "k8s-pod-network",
+  "cniVersion": "0.3.1",
+  "plugins": [
+    {
+      "type": "calico",
+      "log_level": "info",
+      "datastore_type": "kubernetes",
+      "mtu": 1500,
+      "ipam": {
+          "type": "calico-ipam"
+      },
+      "policy": {
+          "type": "k8s"
+      },
+      "kubernetes": {
+          "kubeconfig": "/etc/cni/net.d/calico-kubeconfig"
+      }
+    },
+    {
+      "type": "portmap",
+      "snat": true,
+      "capabilities": {"portMappings": true}
+    }
+  ]
+}
+EOF
+############################################################################################################################
+sudo chmod 750 /etc/cni/net.d
+############################################################################################################################
 sudo reboot 
 ###########################################################################################################################
