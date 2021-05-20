@@ -247,7 +247,7 @@ cd $HOME
 ############################################################################################################################
 cat <<EOF | tee mount.bash
 #!/bin/bash
-sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2, noresvport 10.0.0.5:/ efs
+sudo mount 10.0.0.5:/ efs
 sudo cp /etc/cni/net.d/calico-kubeconfig $HOME/efs/calico-kubeconfig
 EOF
 ##########################################################################################################################
