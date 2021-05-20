@@ -101,7 +101,7 @@ kind: IPPool
 metadata:
   name: pool
 spec:
-  cidr: 192.168.0.0/29
+  cidr: 192.168.0.0/24
   ipipMode: Never
   natOutgoing: true
   disabled: false
@@ -245,6 +245,7 @@ sudo apt-get install -y nfs-common
 cd $HOME
 mkdir efs 
 sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport 10.0.0.5:/ efs
+sleep 5
 sudo cp /etc/cni/net.d/calico-kubeconfig efs/cni.kubeconfig
 ################################# thypha #################################################################################
 mkdir $HOME/typha && cd $HOME/typha
