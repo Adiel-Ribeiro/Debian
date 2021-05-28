@@ -369,9 +369,6 @@ spec:
               readOnly: false
             - mountPath: /var/run/nodeagent
               name: policysync
-            - mountPath: /calico-node-certs
-              name: calico-node-certs
-              readOnly: true
       volumes:
         # Used by calico-node.
         - name: lib-modules
@@ -392,9 +389,6 @@ spec:
           hostPath:
             type: DirectoryOrCreate
             path: /var/run/nodeagent
-        - name: calico-node-certs
-          secret:
-            secretName: calico-node-certs
 EOF
 ##############################################################################################################################
 kubectl apply -f - <<EOF
