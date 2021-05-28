@@ -1,4 +1,11 @@
-############################ This script deploys Kubernetes Nodes #####################################
+################# kubernetes nodes deploy #########################################################################
+# Owner: Adiel Ribeiro 
+# Date: 2021/05/27
+# Contact: contato@nuvym.com
+#          https://www.linkedin.com/company/nuvym-cloud/
+#############################################################################################################
+# This script deploys Kubernetes Nodes
+#############################################################################################################
 #!/bin/bash
 #############################################################################################################
 ################# iptables bridge traffic ###################################################################
@@ -45,6 +52,8 @@ EOF
 sudo systemctl enable docker
 sudo systemctl daemon-reload
 sudo systemctl restart docker
+sudo usermod -a -G docker admin
+sudo systemctl restart docker
 ################################################################################################################
 ################################### kubeadm kubelet and kubectl ################################################
 sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg \
@@ -57,5 +66,6 @@ sudo apt-get update -y
 sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 ############################################################################################################################
+rm $HOME/kubernetes-nodes.bash
 sudo reboot 
 ###########################################################################################################################
