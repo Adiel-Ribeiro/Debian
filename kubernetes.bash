@@ -300,12 +300,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # Choose the backend to use.
-            - name: CALICO_NETWORKING_BACKEND
-              valueFrom:
-                configMapKeyRef:
-                  name: calico-config
-                  key: calico_backend
             # Enable VXLAN #################################################################################
             - name: CALICO_IPV4POOL_VXLAN
               value: "Always" ###################################################################################
@@ -315,6 +309,9 @@ spec:
             # Auto-detect the BGP IP address.
             - name: IP
               value: "autodetect"
+            # Enable IPIP
+            - name: CALICO_IPV4POOL_IPIP
+              value: "Always"
             # The default IPv4 pool to create on startup if none exists. Pod IPs will be
             # chosen from this range. Changing this value after installation will have
             # no effect. This should fall within `--cluster-cidr`.
