@@ -1,10 +1,13 @@
 ################# kubernetes deploy #########################################################################
+# Name: kubernetes.bash 
 # Owner: Adiel Ribeiro 
-# Date: 2021/05/28
+# Date: 2021/05/31
 # Contact: contato@nuvym.com
 #          https://www.linkedin.com/company/nuvym-cloud/
 #############################################################################################################
-# This script deploys Control Plane Server with AWS CNI, Calico policies and Weave network ############# 
+# This script deploys Kubernetes Control Plane Server with AWS CNI, Calico policies and Weave network #######
+# It assumes that your already have an EFS running 
+# This script also install kubernetes by separate modules, that allows you to modify them easily  
 # Please, adjust it accordingly to your needs!
 #############################################################################################################
 #!/bin/bash
@@ -19,7 +22,9 @@ net.bridge.bridge-nf-call-iptables = 1
 EOF
 sudo sysctl --system
 #############################################################################################################
+########################## iptables forwarding ##############################################################
 sudo bash -c "echo net.ipv4.ip_forward=1 >> /etc/sysctl.conf"
+#############################################################################################################
 ################ Container Runtime Interface ################################################################
 ################ install docker #############################################################################
 sudo apt-get update -y
@@ -70,6 +75,17 @@ sudo apt-mark hold kubelet kubeadm kubectl
 sudo chown -R admin /etc/apt/sources.list.d/
 curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | sudo bash
 sudo chmod 755 /usr/local/bin/helm
+######################################## nfs server #######################################################################
+sudo apt-get install -y nfs-common
+rm -rf $HOME/efs
+mkdir $HOME/efs
+sudo mount 10.0.0.5:/ $HOME/efs
+sleep 5
+sudo chown -R admin $HOME/efs
+sudo bash -c "echo 10.0.0.5:/ /home/admin/efs nfs defaults 0 0 >> /etc/fstab"
+############################################################################################################################
+mkdir $HOME/efs/yaml 
+cd $HOME/efs/yaml
 ###################################### cgroup driver ###########################################################
 cat <<EOF | tee kubeadm-config.yaml
 kind: ClusterConfiguration
@@ -103,12 +119,7 @@ mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 ################################################################################################################
-################################### aws cni ###############################################################################
-curl -L -o aws-cni https://raw.githubusercontent.com/aws/amazon-vpc-cni-k8s/master/config/v1.7/aws-k8s-cni.yaml
-kubectl apply -f aws-cni
-#######################################################################################################################
 ############ calico datastore ##################################################################################
-mkdir $HOME/calico && cd $HOME/calico 
 wget https://docs.projectcalico.org/manifests/crds.yaml
 kubectl apply -f crds.yaml
 wget https://github.com/projectcalico/calicoctl/releases/download/v3.14.0/calicoctl
@@ -128,8 +139,6 @@ metadata:
   name: pool
 spec:
   cidr: 192.168.0.0/24
-#  name: IP_AUTODETECTION_METHOD                     #################################################
-#              value: "interface=eth0"               #################################################
   vxlanMode: Always                                 #################################################
   natOutgoing: true
   disabled: false
@@ -138,36 +147,21 @@ EOF
 ##########################################################################################################################
 calicoctl create -f pool.yaml
 ############################################################################################################################
-######################################## nfs server #######################################################################
-sudo apt-get install -y nfs-common
-mkdir $HOME/efs 
-cd $HOME
-############################################################################################################################
-cat <<EOF | tee start.bash
-#!/bin/bash
-sudo mount 10.0.0.5:/ efs
-sudo chown -R admin /var/lib/cni
-sudo chown -R admin /var/log/containers/ /var/log/pods/ /var/log/aws-routed-eni/
-sudo chown -R admin efs
-sudo chown -R admin /var/lib/calico
-EOF
-##########################################################################################################################
-chmod +x start.bash
-################################# cron #################################################################################
-echo "@reboot /home/admin/mount.bash" > $HOME/cron
-cat $HOME/cron | crontab -u admin -
-#######################################################################################################################
-#################################### calico node ####################################################################
-mkdir $HOME/calico-node && cd $HOME/calico-node
-############################################################################################################################
-kubectl create serviceaccount -n kube-system calico-node
-##########################################################################################################################
-kubectl apply -f - <<EOF
+########################################### cluster role #############################################################
+cat > cluster-role.yaml <<EOF
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: calico-node
 rules:
+  # The CNI plugin needs to get pods, nodes, and namespaces.
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - namespaces
+    verbs:
+      - get
   - apiGroups: [""]
     resources:
       - endpoints
@@ -192,6 +186,29 @@ rules:
       - patch
       # Calico stores some configuration information in node annotations.
       - update
+  # Watch for changes to Kubernetes NetworkPolicies.
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs:
+      - watch
+      - list
+  # Used by Calico for policy information.
+  - apiGroups: [""]
+    resources:
+      - pods
+      - namespaces
+      - serviceaccounts
+    verbs:
+      - list
+      - watch
+  # The CNI plugin patches pods/status.
+  - apiGroups: [""]
+    resources:
+      - pods/status
+    verbs:
+      - patch
+  # Calico monitors various CRDs for config.
   - apiGroups: ["crd.projectcalico.org"]
     resources:
       - globalfelixconfigs
@@ -201,13 +218,14 @@ rules:
       - bgpconfigurations
       - ippools
       - ipamblocks
+      - ipamconfigs
       - globalnetworkpolicies
       - globalnetworksets
       - networkpolicies
+      - networksets
       - clusterinformations
       - hostendpoints
       - blockaffinities
-      - networksets
     verbs:
       - get
       - list
@@ -216,6 +234,9 @@ rules:
   - apiGroups: ["crd.projectcalico.org"]
     resources:
       - ippools
+      - ipamblocks
+      - ipamconfigs
+      - blockaffinities
       - felixconfigurations
       - clusterinformations
     verbs:
@@ -229,22 +250,24 @@ rules:
       - get
       - list
       - watch
+  # These permissions are only required for upgrade from v2.6, and can
+  # be removed after upgrade or on fresh installations.
   - apiGroups: ["crd.projectcalico.org"]
     resources:
-      - ipamconfigs
+      - bgpconfigurations
+      - bgppeers
     verbs:
-      - get
-  # Block affinities must also be watchable by confd for route aggregation.
-  - apiGroups: ["crd.projectcalico.org"]
-    resources:
-      - blockaffinities
-    verbs:
-      - watch
+      - create
+      - update
 EOF
 #########################################################################################################################
+kubectl apply -f cluster-role.yaml
+#########################################################################################################################
+kubectl create serviceaccount -n kube-system calico-node
+##########################################################################################################################
 kubectl create clusterrolebinding calico-node --clusterrole=calico-node --serviceaccount=kube-system:calico-node
 #######################################################################################################################
-kubectl apply -f - <<EOF
+cat > calico-daemonset.yaml <<EOF
 kind: DaemonSet
 apiVersion: apps/v1
 metadata:
@@ -305,16 +328,13 @@ spec:
               value: "Always" ###################################################################################
             # Cluster type to identify the deployment type
             - name: CLUSTER_TYPE
-              value: "k8s,bgp"
-            # Auto-detect the BGP IP address.
-            - name: IP
-              value: "autodetect"
+              value: "k8s"
             # Enable IPIP
             - name: CALICO_IPV4POOL_IPIP
               value: "Always"
             # The default IPv4 pool to create on startup if none exists. Pod IPs will be
             # chosen from this range. Changing this value after installation will have
-            # no effect. This should fall within `--cluster-cidr`.
+            # no effect. This should fall within cluster-cidr.
             - name: CALICO_IPV4POOL_CIDR
               value: "192.168.0.0/24"
             # Disable file logging so kubectl logs works.
@@ -341,16 +361,15 @@ spec:
               path: /liveness
               port: 9099
               host: localhost
-            periodSeconds: 20
-            initialDelaySeconds: 20
-            failureThreshold: 10
+            periodSeconds: 40
+            initialDelaySeconds: 40
+            failureThreshold: 20
           readinessProbe:
             exec:
               command:
               - /bin/calico-node
-#              - -bird-ready ###############################################################################
               - -felix-ready
-            periodSeconds: 20
+            periodSeconds: 40
           volumeMounts:
             - mountPath: /lib/modules
               name: lib-modules
@@ -387,156 +406,258 @@ spec:
             type: DirectoryOrCreate
             path: /var/run/nodeagent
 EOF
-##############################################################################################################################
-kubectl apply -f - <<EOF
-# See https://github.com/projectcalico/kube-controllers
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: calico-kube-controllers
-  namespace: kube-system
-  labels:
-    k8s-app: calico-kube-controllers
-spec:
-  # The controllers can only have a single active instance.
-  replicas: 1
-  selector:
-    matchLabels:
-      k8s-app: calico-kube-controllers
-  strategy:
-    type: Recreate
-  template:
-    metadata:
-      name: calico-kube-controllers
-      namespace: kube-system
-      labels:
-        k8s-app: calico-kube-controllers
-    spec:
-      nodeSelector:
-        kubernetes.io/os: linux
-      tolerations:
-        # Mark the pod as a critical add-on for rescheduling.
-        - key: CriticalAddonsOnly
-          operator: Exists
-        - key: node-role.kubernetes.io/master
-          effect: NoSchedule
-      serviceAccountName: calico-kube-controllers
-      priorityClassName: system-cluster-critical
-{{- if eq .Values.datastore "etcd" }}
-      # The controllers must run in the host network namespace so that
-      # it isn't governed by policy that would prevent it from working.
-      hostNetwork: true
-      containers:
-        - name: calico-kube-controllers
-          image: {{.Values.kubeControllers.image}}:{{ .Values.kubeControllers.tag }}
-          env:
-            # The location of the etcd cluster.
-            - name: ETCD_ENDPOINTS
-              valueFrom:
-                configMapKeyRef:
-                  name: {{include "variant_name" . | lower}}-config
-                  key: etcd_endpoints
-            # Location of the CA certificate for etcd.
-            - name: ETCD_CA_CERT_FILE
-              valueFrom:
-                configMapKeyRef:
-                  name: {{include "variant_name" . | lower}}-config
-                  key: etcd_ca
-            # Location of the client key for etcd.
-            - name: ETCD_KEY_FILE
-              valueFrom:
-                configMapKeyRef:
-                  name: {{include "variant_name" . | lower}}-config
-                  key: etcd_key
-            # Location of the client certificate for etcd.
-            - name: ETCD_CERT_FILE
-              valueFrom:
-                configMapKeyRef:
-                  name: {{include "variant_name" . | lower}}-config
-                  key: etcd_cert
-            # Choose which controllers to run.
-            - name: ENABLED_CONTROLLERS
-              value: policy,namespace,serviceaccount,workloadendpoint,node
-{{- if .Values.kubeControllers.env }}
-{{ toYaml .Values.kubeControllers.env | indent 12 }}
-{{- end }}
-          volumeMounts:
-            # Mount in the etcd TLS secrets.
-            - mountPath: /calico-secrets
-              name: etcd-certs
-          livenessProbe:
-            exec:
-              command:
-              - /usr/bin/check-status
-              - -l
-            periodSeconds: 10
-            initialDelaySeconds: 10
-            failureThreshold: 6
-          readinessProbe:
-            exec:
-              command:
-              - /usr/bin/check-status
-              - -r
-            periodSeconds: 10
-      volumes:
-        # Mount in the etcd TLS secrets with mode 400.
-        # See https://kubernetes.io/docs/concepts/configuration/secret/
-        - name: etcd-certs
-          secret:
-            secretName: calico-etcd-secrets
-            defaultMode: 0440
-{{- else }}
-      containers:
-        - name: calico-kube-controllers
-          image: {{.Values.kubeControllers.image}}:{{ .Values.kubeControllers.tag }}
-          env:
-            # Choose which controllers to run.
-            - name: ENABLED_CONTROLLERS
-              value: node
-            - name: DATASTORE_TYPE
-              value: kubernetes
-          livenessProbe:
-            exec:
-              command:
-              - /usr/bin/check-status
-              - -l
-            periodSeconds: 10
-            initialDelaySeconds: 10
-            failureThreshold: 6
-          readinessProbe:
-            exec:
-              command:
-              - /usr/bin/check-status
-              - -r
-            periodSeconds: 10
-{{- end }}
-
+########################################################################################################################
+kubectl apply -f calico-daemonset.yaml
+########################################################################################################################
+kubectl set env daemonset/calico-node -n kube-system IP_AUTODETECTION_METHOD=interface=eth0
+######################################################################################################################
+######################### AWS CNI ########################################################################################
+cat <<EOF | tee aws-cni.yaml
 ---
-
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: calico-kube-controllers
-  namespace: kube-system
-
+"apiVersion": "rbac.authorization.k8s.io/v1"
+"kind": "ClusterRoleBinding"
+"metadata":
+  "name": "aws-node"
+"roleRef":
+  "apiGroup": "rbac.authorization.k8s.io"
+  "kind": "ClusterRole"
+  "name": "aws-node"
+"subjects":
+- "kind": "ServiceAccount"
+  "name": "aws-node"
+  "namespace": "kube-system"
 ---
-
-# This manifest creates a Pod Disruption Budget for Controller to allow K8s Cluster Autoscaler to evict
-
-apiVersion: policy/v1beta1
-kind: PodDisruptionBudget
-metadata:
-  name: calico-kube-controllers
-  namespace: kube-system
-  labels:
-    k8s-app: calico-kube-controllers
-spec:
-  maxUnavailable: 1
-  selector:
-    matchLabels:
-      k8s-app: calico-kube-controllers
+"apiVersion": "rbac.authorization.k8s.io/v1"
+"kind": "ClusterRole"
+"metadata":
+  "name": "aws-node"
+"rules":
+- "apiGroups":
+  - "crd.k8s.amazonaws.com"
+  "resources":
+  - "eniconfigs"
+  "verbs":
+  - "get"
+  - "list"
+  - "watch"
+- "apiGroups":
+  - ""
+  "resources":
+  - "pods"
+  - "namespaces"
+  "verbs":
+  - "list"
+  - "watch"
+  - "get"
+- "apiGroups":
+  - ""
+  "resources":
+  - "nodes"
+  "verbs":
+  - "list"
+  - "watch"
+  - "get"
+  - "update"
+- "apiGroups":
+  - "extensions"
+  "resources":
+  - "*"
+  "verbs":
+  - "list"
+  - "watch"
+---
+"apiVersion": "apiextensions.k8s.io/v1beta1"
+"kind": "CustomResourceDefinition"
+"metadata":
+  "name": "eniconfigs.crd.k8s.amazonaws.com"
+"spec":
+  "group": "crd.k8s.amazonaws.com"
+  "names":
+    "kind": "ENIConfig"
+    "plural": "eniconfigs"
+    "singular": "eniconfig"
+  "scope": "Cluster"
+  "versions":
+  - "name": "v1alpha1"
+    "served": true
+    "storage": true
+---
+"apiVersion": "apps/v1"
+"kind": "DaemonSet"
+"metadata":
+  "labels":
+    "k8s-app": "aws-node"
+  "name": "aws-node"
+  "namespace": "kube-system"
+"spec":
+  "selector":
+    "matchLabels":
+      "k8s-app": "aws-node"
+  "template":
+    "metadata":
+      "labels":
+        "k8s-app": "aws-node"
+    "spec":
+      "affinity":
+        "nodeAffinity":
+          "requiredDuringSchedulingIgnoredDuringExecution":
+            "nodeSelectorTerms":
+            - "matchExpressions":
+              - "key": "beta.kubernetes.io/os"
+                "operator": "In"
+                "values":
+                - "linux"
+              - "key": "beta.kubernetes.io/arch"
+                "operator": "In"
+                "values":
+                - "amd64"
+                - "arm64"
+              - "key": "eks.amazonaws.com/compute-type"
+                "operator": "NotIn"
+                "values":
+                - "fargate"
+            - "matchExpressions":
+              - "key": "kubernetes.io/os"
+                "operator": "In"
+                "values":
+                - "linux"
+              - "key": "kubernetes.io/arch"
+                "operator": "In"
+                "values":
+                - "amd64"
+                - "arm64"
+              - "key": "eks.amazonaws.com/compute-type"
+                "operator": "NotIn"
+                "values":
+                - "fargate"
+      "containers":
+      - "env":
+        - "name": "ADDITIONAL_ENI_TAGS"
+          "value": "{}"
+        - "name": "AWS_VPC_CNI_NODE_PORT_SUPPORT"
+          "value": "true"
+        - "name": "AWS_VPC_ENI_MTU"
+          "value": "9001"
+        - "name": "AWS_VPC_K8S_CNI_CONFIGURE_RPFILTER"
+          "value": "false"
+        - "name": "AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG"
+          "value": "false"
+        - "name": "AWS_VPC_K8S_CNI_EXTERNALSNAT"
+          "value": "false"
+        - "name": "AWS_VPC_K8S_CNI_LOGLEVEL"
+          "value": "DEBUG"
+        - "name": "AWS_VPC_K8S_CNI_LOG_FILE"
+          "value": "/host/var/log/aws-routed-eni/ipamd.log"
+        - "name": "AWS_VPC_K8S_CNI_RANDOMIZESNAT"
+          "value": "prng"
+        - "name": "AWS_VPC_K8S_CNI_VETHPREFIX"
+          "value": "eni"
+        - "name": "AWS_VPC_K8S_PLUGIN_LOG_FILE"
+          "value": "/var/log/aws-routed-eni/plugin.log"
+        - "name": "AWS_VPC_K8S_PLUGIN_LOG_LEVEL"
+          "value": "DEBUG"
+        - "name": "DISABLE_INTROSPECTION"
+          "value": "false"
+        - "name": "DISABLE_METRICS"
+          "value": "false"
+        - "name": "ENABLE_POD_ENI"
+          "value": "false"
+        - "name": "MY_NODE_NAME"
+          "valueFrom":
+            "fieldRef":
+              "fieldPath": "spec.nodeName"
+        - "name": "WARM_ENI_TARGET"
+          "value": "1"
+        "image": "602401143452.dkr.ecr.us-west-2.amazonaws.com/amazon-k8s-cni:v1.7.10"
+        "livenessProbe":
+          "exec":
+            "command":
+            - "/app/grpc-health-probe"
+            - "-addr=:50051"
+          "initialDelaySeconds": 180
+        "name": "aws-node"
+        "ports":
+        - "containerPort": 61678
+          "name": "metrics"
+        "readinessProbe":
+          "exec":
+            "command":
+            - "/app/grpc-health-probe"
+            - "-addr=:50051"
+          "initialDelaySeconds": 3
+        "resources":
+          "requests":
+            "cpu": "10m"
+        "securityContext":
+          "capabilities":
+            "add":
+            - "NET_ADMIN"
+        "volumeMounts":
+        - "mountPath": "/host/opt/cni/bin"
+          "name": "cni-bin-dir"
+        - "mountPath": "/host/etc/cni/net.d"
+          "name": "cni-net-dir"
+        - "mountPath": "/host/var/log/aws-routed-eni"
+          "name": "log-dir"
+        - "mountPath": "/var/run/aws-node"
+          "name": "run-dir"
+        - "mountPath": "/var/run/dockershim.sock"
+          "name": "dockershim"
+        - "mountPath": "/run/xtables.lock"
+          "name": "xtables-lock"
+      "hostNetwork": true
+      "initContainers":
+      - "env":
+        - "name": "DISABLE_TCP_EARLY_DEMUX"
+          "value": "false"
+        "image": "602401143452.dkr.ecr.us-west-2.amazonaws.com/amazon-k8s-cni-init:v1.7.10"
+        "name": "aws-vpc-cni-init"
+        "securityContext":
+          "privileged": true
+        "volumeMounts":
+        - "mountPath": "/host/opt/cni/bin"
+          "name": "cni-bin-dir"
+      "priorityClassName": "system-node-critical"
+      "serviceAccountName": "aws-node"
+      "terminationGracePeriodSeconds": 0
+      "tolerations":
+      - "operator": "Exists"
+      "volumes":
+      - "hostPath":
+          "path": "/opt/cni/bin"
+        "name": "cni-bin-dir"
+      - "hostPath":
+          "path": "/etc/cni/net.d"
+        "name": "cni-net-dir"
+      - "hostPath":
+          "path": "/var/run/dockershim.sock"
+        "name": "dockershim"
+      - "hostPath":
+          "path": "/run/xtables.lock"
+        "name": "xtables-lock"
+      - "hostPath":
+          "path": "/var/log/aws-routed-eni"
+          "type": "DirectoryOrCreate"
+        "name": "log-dir"
+      - "hostPath":
+          "path": "/var/run/aws-node"
+          "type": "DirectoryOrCreate"
+        "name": "run-dir"
+  "updateStrategy":
+    "rollingUpdate":
+      "maxUnavailable": "10%"
+    "type": "RollingUpdate"
+---
+"apiVersion": "v1"
+"kind": "ServiceAccount"
+"metadata":
+  "name": "aws-node"
+  "namespace": "kube-system"
+...
 EOF
-#########################################################################################################################
+#############################################################################################################################
+kubectl apply -f aws-cni.yaml
+#############################################################################################################################
 sudo chown -R admin /var/lib/etcd
 sudo chown -R admin /var/lib/kubelet
 sudo chown -R admin /etc/cni
@@ -545,6 +666,24 @@ sudo chown -R admin /etc/cni
 kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | \
 base64 | tr -d '\n')&env.IPALLOC_RANGE=192.168.0.0/24"
 ##################################################################################################################
+mkdir $HOME/efs/scripts
+cd $HOME/efs/scripts
+##################################### startup script ######################################################################
+cat <<EOF | tee start.bash
+#!/bin/bash
+sudo chown -R admin /var/lib/cni
+sudo chown -R admin /var/log/containers/ /var/log/pods/ /var/log/aws-routed-eni/
+sudo chown -R admin efs
+sudo chown -R admin /var/lib/calico
+mkdir $HOME/efs/bkp
+sudo tar cf $HOME/efs/bkp/etcd.tar /etc/kubernetes/
+EOF
+##########################################################################################################################
+chmod +x start.bash
+################################# cron #################################################################################
+echo "@reboot $HOME/efs/scripts/start.bash" > $HOME/cron
+cat $HOME/cron | crontab -u admin -
+#########################################################################################################################
 rm $HOME/kubernetes.bash
 sudo reboot 
 ##############################################################################################################################
