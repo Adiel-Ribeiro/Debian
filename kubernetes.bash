@@ -81,6 +81,7 @@ rm -rf $HOME/efs
 mkdir $HOME/efs
 sudo mount 10.0.0.5:/ $HOME/efs
 sleep 5
+sudo rm -rfv efs/*
 sudo chown -R admin $HOME/efs
 sudo bash -c "echo 10.0.0.5:/ /home/admin/efs nfs defaults 0 0 >> /etc/fstab"
 ############################################################################################################################
