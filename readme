@@ -1,10 +1,9 @@
-If you are already running a Debian EC2 instance, you may download and run debian-hardening.sh
-This script secures your Debian server with some best practices 
+Debian Hardening and Kubernetes automated deployment 
 
-If you wants to automate a secure Debian EC2 launch, you may download and run kubernetes.tf with Terraform 
+The scripts are auto explained 
 
-Don't forget to change these files accordingly to your needs. 
+If you have doubts, please contact us
 
-Follow us as we update our contents sometimes 
+https://www.linkedin.com/company/nuvym-cloud/
 
-ENJOY! 
+Enjoy!  
