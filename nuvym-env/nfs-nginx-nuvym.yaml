@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-nuvym
+  namespace: nuvym
+  labels:
+    app: nginx-nuvym
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-nuvym
+  template:
+    metadata:
+      labels:
+        app: nginx-nuvym
+    spec:
+      volumes: 
+        - name: nfs-disk  
+      containers:
+      - name: nginx-nuvym
+        image: nginx:1.16
+        ports:
+        - containerPort: 80
+        volumeMounts:
+           - name: nfs-disk 
+             mountPath: /usr/share/nginx/html
+        

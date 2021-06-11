@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+   name: nfs-disk
+   namespace: nuvym
+spec:
+  storageClassName: nfs-host
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
