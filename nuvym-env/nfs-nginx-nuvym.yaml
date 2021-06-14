@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nginx-nuvym
-  namespace: nuvym
+  namespace: web
   labels:
     app: nginx-nuvym
 spec:
@@ -16,13 +16,30 @@ spec:
         app: nginx-nuvym
     spec:
       volumes: 
-        - name: nfs-disk  
+        - name: nfs-vol 
       containers:
       - name: nginx-nuvym
         image: nginx:1.16
         ports:
         - containerPort: 80
         volumeMounts:
-           - name: nfs-disk 
+           - name: nfs-vol 
              mountPath: /usr/share/nginx/html
-        
+        startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 2
+            periodSeconds: 10  
+        livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 2
+            periodSeconds: 10
+        readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 2
+            periodSeconds: 5
