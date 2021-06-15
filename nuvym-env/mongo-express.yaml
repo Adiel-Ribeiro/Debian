@@ -48,6 +48,7 @@ spec:
               port: 80
             failureThreshold: 2
             periodSeconds: 10
+            terminationGracePeriodSeconds: 0
         readinessProbe:
             httpGet:
               path: /

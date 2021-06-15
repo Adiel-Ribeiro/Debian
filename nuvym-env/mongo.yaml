@@ -41,6 +41,7 @@ spec:
               port: 27017
             failureThreshold: 2
             periodSeconds: 10
+            terminationGracePeriodSeconds: 0
         readinessProbe:
             tcpSocket:
               port: 27017
