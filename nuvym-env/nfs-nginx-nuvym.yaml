@@ -17,6 +17,8 @@ spec:
     spec:
       volumes: 
         - name: nfs-vol 
+          persistentVolumeClaim:
+            claimName: nfs-vol
       containers:
       - name: nginx-nuvym
         image: nginx:1.16
@@ -24,7 +26,7 @@ spec:
         - containerPort: 80
         volumeMounts:
            - name: nfs-vol 
-             mountPath: /usr/share/nginx/html
+             mountPath: "/usr/share/nginx/html"
         startupProbe:
             httpGet:
               path: /
