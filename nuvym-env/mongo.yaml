@@ -15,6 +15,10 @@ spec:
       labels:
         app: mongodb
     spec:
+      volumes: 
+        - name: nfs-mongo-vol 
+          persistentVolumeClaim:
+            claimName: nfs-mongo-vol 
       containers:
       - name: mongodb
         image: mongo
@@ -47,3 +51,6 @@ spec:
               port: 27017
             failureThreshold: 2
             periodSeconds: 5
+        volumeMounts:
+           - name: nfs-mongo-vol 
+             mountPath: "/data/db"
