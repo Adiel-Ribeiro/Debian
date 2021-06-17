@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nuvym
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-vol
+spec:
+  storageClassName: nfs-web
+  capacity:
+    storage: 3Gi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/nfs/storage/web"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+   name: nfs-vol
+   namespace: nuvym
+spec:
+  storageClassName: nfs-web
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-nuvym
+  namespace: nuvym
+  labels:
+    app: nginx-nuvym
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-nuvym
+  template:
+    metadata:
+      labels:
+        app: nginx-nuvym
+    spec:
+      volumes: 
+        - name: nfs-vol 
+          persistentVolumeClaim:
+            claimName: nfs-vol
+      containers:
+      - name: nginx-nuvym
+        image: nginx:1.16
+        ports:
+        - containerPort: 80
+        volumeMounts:
+           - name: nfs-vol 
+             mountPath: "/usr/share/nginx/html"
+        startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 2
+            periodSeconds: 10  
+        livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 2
+            periodSeconds: 10
+            terminationGracePeriodSeconds: 0
+        readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 2
+            periodSeconds: 5
+        resources:
+            limits:
+              memory: "10M"
+              cpu: "50m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nuvym-elb
+  namespace: nuvym
+spec:
+  selector:
+    app: nginx-nuvym
+  type: LoadBalancer  
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30001
